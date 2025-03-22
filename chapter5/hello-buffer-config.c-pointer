@@ -1,0 +1,185 @@
+//#include <stdio.h>
+//#include <unistd.h>
+//#include <errno.h>
+//#include <bpf/libbpf.h>
+//#include "hello-buffer-config.h"
+//#include "hello-buffer-config.skel.h"
+
+#include <stdio.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <errno.h>
+#include <bpf/libbpf.h>
+#include <bpf/bpf.h>
+#include "hello-buffer-config.h"
+#include "hello-buffer-config.skel.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <bpf/libbpf.h>
+
+// So basically it's set that libbpf_set_print uses this function for printing
+// But it's more for libbpf logs than it's for "logs" that we're creating
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
+{
+	if (level >= LIBBPF_DEBUG)
+		return 0;
+
+	return vfprintf(stderr, format, args);
+}
+
+void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz)
+{
+	struct data_t *m = data;
+	struct data_t *parent_data;
+
+
+
+	printf("%-6d %-6d %-16s %-16s %s\n", m->pid, m->uid, m->command, m->path, m->message);
+   printf("PPID: %d, Parent Command: %-16s", m->ppid, m->parent_com);
+	printf("Cpu: %d\n",cpu);
+
+   //int ppid = m->ppid;
+   //while (ppid != 1) {
+   //   if (bpf_map_lookup_elem(map_fd, &ppid, &parent_data) == 0) {
+   //        printf("  ↳ Parent PID: %-6d Parent CMD: %-16s\n", parent_data->ppid, parent_data->parent_com);
+   //        ppid = parent_data->ppid;  // Move to next parent
+   //   } else {
+   //      break;
+   //   }
+   //}
+
+}
+
+void preload_processes(int map_fd, struct bpf_map *map) {
+    DIR *dir = opendir("/proc");
+    struct dirent *entry;
+    if (!dir) {
+        perror("Failed to open /proc");
+        return;
+    }
+
+    printf("[+] Preloading existing processes...\n");
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!isdigit(entry->d_name[0])) continue;  // Ignore non-numeric entries (not PIDs)
+
+        int pid = atoi(entry->d_name);
+        char stat_path[64];
+        snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
+
+        FILE *stat_file = fopen(stat_path, "r");
+        if (!stat_file) continue;
+
+        struct data_t *process = {};
+        char comm[16], state;
+        int ppid;
+
+        if (fscanf(stat_file, "%d %s %c %d", &(process->pid), comm, &state, &ppid) == 4) {
+            process->ppid = ppid;
+            strncpy(process->command, comm, sizeof(process->command) - 1);
+
+            // Get UID from /proc/[pid]/status
+            char status_path[64];
+            snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+            FILE *status_file = fopen(status_path, "r");
+            if (status_file) {
+                char line[256];
+                while (fgets(line, sizeof(line), status_file)) {
+                    if (strncmp(line, "Uid:", 4) == 0) {
+                        sscanf(line, "Uid:\t%d", &(process->uid));
+                        break;
+                    }
+                }
+                fclose(status_file);
+            }
+
+            // Lookup parent command
+            snprintf(stat_path, sizeof(stat_path), "/proc/%d/comm", ppid);
+            FILE *parent_file = fopen(stat_path, "r");
+            if (parent_file) {
+                fgets(process->parent_com, sizeof(process->parent_com), parent_file);
+                fclose(parent_file);
+            } else {
+                strncpy(process->parent_com, "unknown", sizeof(process->parent_com) - 1);
+            }
+
+            // Insert into BPF map
+            if (bpf_map_update_elem(map_fd, &process->pid, process, BPF_ANY) == 0) {
+            //if (bpf_map_update_elem(map_fd, const void *key, const void *value, __u64 flags)) { 
+            //LIBBPF_API int bpf_map_update_elem(int fd, const void *key, const void *value,__u64 flags);
+
+         
+
+                printf("  [+] Loaded: PID=%d PPID=%d CMD=%s Parent=%s\n", 
+                        process->pid, process->ppid, process->command, process->parent_com);
+            } else {
+                printf("  [-] Failed to insert PID=%d\n", process->pid);
+            }
+
+        }
+        fclose(stat_file);
+    }
+
+    closedir(dir);
+}
+
+void lost_event(void *ctx, int cpu, long long unsigned int data_sz)
+{
+	printf("Izgubi ga bate\n");
+   return;
+}
+
+int main()
+{
+    struct hello_buffer_config_bpf *skel;
+    int err;
+	struct perf_buffer *pb = NULL;
+
+	libbpf_set_print(libbpf_print_fn);
+
+	skel = hello_buffer_config_bpf__open_and_load();
+	if (!skel) {
+		printf("Failed to open BPF object\n");
+		return 1;
+	}
+
+	err = hello_buffer_config_bpf__attach(skel);
+	if (err) {
+		fprintf(stderr, "Failed to attach BPF skeleton: %d\n", err);
+		hello_buffer_config_bpf__destroy(skel);
+        return 1;
+	}
+
+	pb = perf_buffer__new(bpf_map__fd(skel->maps.output), 8, handle_event, lost_event, NULL, NULL);
+	if (!pb) {
+		err = -1;
+		fprintf(stderr, "Failed to create ring buffer\n");
+		hello_buffer_config_bpf__destroy(skel);
+        return 1;
+	}
+
+  preload_processes(bpf_map__fd(skel->maps.output),skel->maps.output);
+
+
+	while (true) {
+		err = perf_buffer__poll(pb, 100 /* timeout, ms */);
+		if (err == -EINTR) {
+			err = 0;
+			break;
+		}
+		if (err < 0) {
+			printf("Error polling perf buffer: %d\n", err);
+			break;
+		}
+	}
+
+	perf_buffer__free(pb);
+	hello_buffer_config_bpf__destroy(skel);
+	return -err;
+}

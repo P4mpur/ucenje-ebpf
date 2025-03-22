@@ -1,4 +1,4 @@
-TARGET = hello
+TARGET = ping
 ARCH = $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/')
 
 BPF_OBJ = ${TARGET:=.bpf.o}

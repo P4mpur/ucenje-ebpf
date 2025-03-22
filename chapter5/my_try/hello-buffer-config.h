@@ -9,7 +9,6 @@ struct data_t {
    char message[12];
    char path[16];
    char parent_com[16];
-} __attribute__((packed, aligned(8)));  // 🔥 Ensure no padding
-
+};
 
 #endif

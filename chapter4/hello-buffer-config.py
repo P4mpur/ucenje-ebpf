@@ -1,7 +1,23 @@
 #!/usr/bin/python3  
-# -*- coding: utf-8 -*-
 from bcc import BPF
 import ctypes as ct
+
+def parse_passwd(passwd_content, attached_kprobe):
+    for line in passwd_content.splitlines():  # Iterate over each line in the content
+        if line.strip() and not line.startswith('#'):  # Skip empty lines and comments
+            parts = line.split(':')
+            if len(parts) >= 6:  # Ensure the line has enough fields
+                username = parts[0]
+                print("username is ", parts[0])
+                print("user_ID is ", parts[2])
+                user_id = int(parts[2])  # Convert user_id to integer
+                mapped_string = f"Hey {username}".encode('utf-8')  # Encode string to bytes
+                attached_kprobe["config"][ct.c_int(user_id)] = ct.create_string_buffer(mapped_string)
+    return attached_kprobe["config"]
+
+def read_passwd_file(file_path):
+    with open(file_path, 'r') as file:
+        return file.read()
 
 program = r"""
 struct user_msg_t {
@@ -45,12 +61,22 @@ int hello(void *ctx) {
 b = BPF(text=program) 
 syscall = b.get_syscall_fnname("execve")
 b.attach_kprobe(event=syscall, fn_name="hello")
-b["config"][ct.c_int(0)] = ct.create_string_buffer(b"Hey root!")
-b["config"][ct.c_int(501)] = ct.create_string_buffer(b"Hi user 501!")
+content = read_passwd_file("/etc/passwd")
+b["config"] = parse_passwd(content,b)
  
+
 def print_event(cpu, data, size):  
    data = b["output"].event(data)
    print(f"{data.pid} {data.uid} {data.command.decode()} {data.message.decode()}")
+   # Output the full command 
+   try:
+       with open(f"/proc/{data.pid}/cmdline","rb") as f:
+           #cmdline = f.read().replace("\x00"," ")
+           rawcmdline = f.read()
+           print(f"Rawcmd: {rawcmdline!r}")
+   except FileNotFoundError as e:
+       print(f"Process {data.pid} no longer exists")
+
  
 b["output"].open_perf_buffer(print_event) 
 while True:   

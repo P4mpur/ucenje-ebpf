@@ -1,0 +1,120 @@
+    1  cd /data/ebpf/learning-ebpf/
+    2  ls
+    3  cd chapter8/
+    4  ls
+    5  ./ping.py 
+    6  make
+    7  ls
+    8  ./ping.py 
+    9  ls
+   10  vim ping.
+   11  :q
+   12  vim ping.py 
+   13  apt install vim
+   14  vim ping.py 
+   15  ./ping.py 
+   16  vim ping.
+   17  vim ping.py 
+   18  ./ping.py 
+   19  vim ping.
+   20  vim ping.py 
+   21  ./ping.py 
+   22  ls
+   23  ./network.py 
+   24  ls
+   25  make
+   26  cat /sys/kernel/tracing/trace_pipe
+   27  mount -t debugfs /sys/kernel/debug
+   28  mount -t debugfs none /sys/kernel/debug
+   29  cat /sys/kernel/tracing/trace_pipe
+   30  cat /sys/kernel/debug/tracing/trace_pipe
+   31  lsof -f
+   32  lsof -
+   33  lsof 
+   34  apt install lsof
+   35  lsof -p
+   36  lsof 
+   37  lsof  | grep tracing
+   38  lsof  | grep trace
+   39  lsof  | grep sys
+   40  lsof  | grep kernel
+   41  lsof  | grep debug
+   42  lsof  
+   43  make clean
+   44  lsof  | grep debug
+   45  lsof  
+   46  cd ..
+   47  lsof  
+   48  kill 4096
+   49  kill 1973278
+   50  kill 223
+   51  lsof -f /data
+   52  lsof -f 
+   53* ps aux | grep 
+   54  lsof -f 
+   55  lsof 
+   56  lsof +f /sys/
+   57  lsof +f /sys/kernel/debug/
+   58  lsof +f - /sys/kernel/debug/
+   59  lsof +f -- /sys/kernel/debug/
+   60  lsof +f -- /sys/
+   61  lsof +f -- 
+   62  lsof +f -- | grep sys
+   63  lsof +f -- | grep kernel
+   64  lsof +f -- 
+   65  kill 272
+   66  cd /src/libbpf-bootstrap/
+   67  ls
+   68  cd examples/
+   69  ls
+   70  cd c/
+   71  ls
+   72  make minimal
+   73  ls
+   74  ./minimal 
+   75  ls
+   76  make 
+   77  ls
+   78  ./bootstrap 
+   79  ./ksyscall 
+   80  ls
+   81  cd /data/ebpf/
+   82  ls
+   83  cd learning-ebpf/
+   84  ls
+   85  cd chapter8/
+   86  ls
+   87  make
+   88  ping localhost
+   89  apt install pinguitls
+   90  apt install ping
+   91  apt install iputils-ping
+   92  ping localhost
+   93  ls
+   94  vim ping.
+   95  vim ping.py 
+   96  ./ping.py 
+   97  ls
+   98  ./ping.py 
+   99  make
+  100  ls
+  101  vim Makefile 
+  102  make clean
+  103  make 
+  104  ls
+  105  vim Makefile 
+  106  ifconfig
+  107  apt install net-utils
+  108  apt install net-tool
+  109  apt install net-tools
+  110  ifconfig
+  111  make clean
+  112  make install 
+  113  make 
+  114  ls
+  115  ./ping.py 
+  116  ls
+  117  vim hello.bpf.c 
+  118  ls
+  119  history 
+  120  history > history.txt

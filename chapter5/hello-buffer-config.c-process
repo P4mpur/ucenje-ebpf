@@ -10,7 +10,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <bpf/libbpf.h>
-#include <bpf/bpf.h>
 #include "hello-buffer-config.h"
 #include "hello-buffer-config.skel.h"
 #include <stdio.h>
@@ -22,26 +21,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <bpf/libbpf.h>
-#include <errno.h>
-#include <stdint.h>
-#include <linux/types.h>
-#include "logger.h"
-
-typedef uint32_t u32;
-
-// Structure which helps us have every process in one place
-struct {
-    const char *field_name;
-    size_t offset;
-    const char *format;
-} fields[] = {
-    {"Name:", offsetof(struct data_t, command), "%15s"},
-    {"Pid:", offsetof(struct data_t, pid), "%d"},
-    {"PPid:", offsetof(struct data_t, ppid), "%d"},
-    {"Uid:", offsetof(struct data_t, uid), "%d"},
-    // Add more fields as needed
-};
-
 
 // So basically it's set that libbpf_set_print uses this function for printing
 // But it's more for libbpf logs than it's for "logs" that we're creating
@@ -53,86 +32,27 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 	return vfprintf(stderr, format, args);
 }
 
-struct data_t* get_process_info(int pid) {
-    static struct data_t proc;
-    char path[40], buffer[128];
-    FILE *status_file;
-    char parent_comm[16];
+void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz)
+{
+	struct data_t *m = data;
+	struct data_t *parent_data;
 
-    snprintf(path, sizeof(path), "/proc/%d/status", pid);
-    status_file = fopen(path, "r");
-    if (!status_file) {
-        return NULL;
-    }
 
-   // This is where the struct comes in handy, i don't need to have many if else's
-   while (fgets(buffer, sizeof(buffer), status_file)) {
-       for (int i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
-           if (strncmp(buffer, fields[i].field_name, strlen(fields[i].field_name)) == 0) {
-               void *field_ptr = (char *)&proc + fields[i].offset;
-               sscanf(buffer + strlen(fields[i].field_name) + 1, fields[i].format, field_ptr);
-               break;
-           }
-       }
-   }
 
-    fclose(status_file);
+	printf("%-6d %-6d %-16s %-16s %s\n", m->pid, m->uid, m->command, m->path, m->message);
+   printf("PPID: %d, Parent Command: %-16s", m->ppid, m->parent_com);
+	printf("Cpu: %d\n",cpu);
 
-    // Retrieve parent process command
-    snprintf(path, sizeof(path), "/proc/%d/comm", proc.ppid);
-    status_file = fopen(path, "r");
-    if (status_file) {
-        if (fgets(parent_comm, sizeof(parent_comm), status_file)) {
-            // Remove newline character
-            parent_comm[strcspn(parent_comm, "\n")] = '\0';
-            strncpy(proc.parent_com, parent_comm, sizeof(proc.parent_com) - 1);
-            proc.parent_com[sizeof(proc.parent_com) - 1] = '\0';
-        }
-        fclose(status_file);
-    } else {
-        strncpy(proc.parent_com, "Unknown", sizeof(proc.parent_com) - 1);
-        proc.parent_com[sizeof(proc.parent_com) - 1] = '\0';
-    }
+   //int ppid = m->ppid;
+   //while (ppid != 1) {
+   //   if (bpf_map_lookup_elem(map_fd, &ppid, &parent_data) == 0) {
+   //        printf("  ↳ Parent PID: %-6d Parent CMD: %-16s\n", parent_data->ppid, parent_data->parent_com);
+   //        ppid = parent_data->ppid;  // Move to next parent
+   //   } else {
+   //      break;
+   //   }
+   //}
 
-    return &proc;
-}
-
-void traverse_to_root(struct data_t *process,int level) {
-    printf("Tracing process hierarchy:\n");
-    printf("%-6s %-6s %-16s %-16s\n", "PID", "PPID", "Command", "Parent Command");
-
-    struct data_t *current_process = process;
-
-    while (current_process != NULL) {
-
-    // Print process information
-    printf("↪ %-6d %-16s Parent: %-16s\n",
-           current_process->pid,
-           current_process->command,
-           current_process->parent_com);
-
-        // If the current process is the root (e.g., PID 1), stop the traversal
-        if (current_process->pid == 1) {
-            break;
-        }
-         level++;
-
-        // Retrieve the parent process information
-        current_process = get_process_info(current_process->ppid);
-    }
-}
-
-void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
-    struct data_t *m = data;
-
-    printf("Event received on CPU %d:\n", cpu);
-    printf("%-6d %-6d %-16s %-16s %s\n",
-           m->pid, m->uid, m->command, m->path, m->message);
-    printf("PPID: %d, Parent Command: %-16s\n",
-           m->ppid, m->parent_com);
-
-    // Traverse and display the process hierarchy to the root
-    traverse_to_root(m,0);
 }
 
 void preload_processes(int map_fd, struct bpf_map *map) {
@@ -189,16 +109,10 @@ void preload_processes(int map_fd, struct bpf_map *map) {
             }
 
             // Insert into BPF map
-            printf("Process PID before inserting: %d\n", process.pid);
-            printf("map_fd, makes sense? - %d\n", map_fd);
-            printf("SIZIEIEIEIEIEIE : %d", (int)sizeof(process));
-            uint32_t u32_pid = process.pid;
-            
-            if (bpf_map_update_elem(map_fd, &u32_pid, &process, BPF_ANY) == 0) {
-                printf("  [+] Loaded: PID=%d PPID=%d CMD=%s Parent=%s\n",
+            if (bpf_map__update_elem(map, &process.pid, &process, BPF_ANY) == 0) {
+                printf("  [+] Loaded: PID=%d PPID=%d CMD=%s Parent=%s\n", 
                         process.pid, process.ppid, process.command, process.parent_com);
             } else {
-                perror("  [-] Failed to insert process");  // 🔥 Print exact error
                 printf("  [-] Failed to insert PID=%d\n", process.pid);
             }
 
@@ -244,7 +158,7 @@ int main()
         return 1;
 	}
 
-  preload_processes(bpf_map__fd(skel->maps.my_config),skel->maps.my_config);
+  preload_processes(bpf_map__fd(skel->maps.output),skel->maps.output);
 
 
 	while (true) {

@@ -18,10 +18,9 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 20480);
+    __uint(max_entries, 10240);
     __type(key, u32);
     __type(value, struct data_t);
-    __uint(map_flags, 0);  // 🔥 Ensure it's writable
 } my_config SEC(".maps");
 
 SEC("ksyscall/execve")
@@ -42,14 +41,9 @@ int BPF_KPROBE_SYSCALL(hello, const char *pathname)
    bpf_get_current_comm(&data.command, sizeof(data.command));
    bpf_probe_read_user_str(&data.path, sizeof(data.path), pathname);
 
-   struct task_struct *parent = task->real_parent;
-   if (parent) {
-       data.ppid = parent->tgid;
-       bpf_probe_read_kernel_str(data.parent_com, sizeof(data.parent_com), parent->comm);
-   }
-
+   // pid_t parent_pid = task->real_parent->tgid;
    bpf_perf_event_output(ctx, &output, BPF_F_CURRENT_CPU, &data, sizeof(data));   
-   bpf_map_update_elem(&my_config, &data.pid,&data,BPF_ANY);
+   //bpf_map_update_elem(&my_config, &data.pid,&data,BPF_ANY);
    return 0;
 }
 
