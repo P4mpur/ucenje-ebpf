@@ -53,6 +53,7 @@ For each example, if there's a Makefile you should simply be able to run `make` 
 
 ## View eBPF trace output
 
+<<<<<<< HEAD
 As root, `cat /sys/kernel/debug/tracing/trace-pipe`
 Or if you have `bpftool` installed, the equivalent is `bpftool prog tracelog`
 
@@ -62,3 +63,6 @@ If you're looking at an Early Release version of the book, you may well find
 inconsistencies between the book and this repo. But if you have the final
 published version, I'd love to hear if you find corrections and improvements for
 these examples. Issues and PRs are welcome! 
+=======
+As root, `cat /sys/kernel/debug/tracing/trace_pipe`
+>>>>>>> d69dc66 (typo in debug command)
