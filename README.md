@@ -1,16 +1,17 @@
-# Learning eBPF 
+I've also provided a [Lima](https://github.com/lima-vm/lima) config file with
+the packages you need for building the code pre-installed.
 
-This repo accompanies my book [Learning eBPF](https://www.amazon.com/Learning-eBPF-Programming-Observability-Networking/dp/1098135121) (published by O'Reilly). The repo currently includes:
+If you have a Linux machine or VM to hand, feel free to use that instead of
+Lima, using the `learning-ebpf.yaml` file as a guide for the packages you'll 
+need to install. The minimum kernel version required varies from chapter to chapter. All
+these examples have been tested on an Ubuntu distribution using a 5.15 kernel. 
 
-* A [Lima](https://github.com/lima-vm/lima) config file with the packages you need for building the code pre-installed 
-* Some example eBPF programs that are referred to by different chapters in the book
+### Install this repo
 
-If you have a Linux machine or VM to hand, feel free to use that instead of Lima. The minimum kernel version required varies from chapter to chapter. All these examples have been tested on an Ubuntu distribution using a 5.15 kernel. 
-
-You'll need root privileges (well, strictly CAP_BPF) to be able to load BPF programs into the kernel. You'll also need [additional privileges](https://mdaverde.com/posts/cap-bpf/) for certain examples.
-
-## Installing this repo 
-
+```sh
+git clone --recurse-submodules https://github.com/lizrice/learning-ebpf
+cd learning-ebpf
+>>>>>>> 311b1d5 (Additions to README.md)
 ```
 git clone https://github.com/lizrice/learning-ebpf
 
@@ -30,39 +31,3 @@ sudo -s
 To get libbfd support you might need to build bpftool from source
 
 ```
-cd ..
-git clone --recurse-submodules https://github.com/libbpf/bpftool.git
-cd bpftool 
-git submodule update --init
-cd src 
-make 
-sudo make install 
-```
-
-## Building libbpf and installing header files
-
-```
-cd libbpf/src
-make
-make install
-```
-
-## Building BPF code
-
-For each example, if there's a Makefile you should simply be able to run `make` as root 
-
-## View eBPF trace output
-
-<<<<<<< HEAD
-As root, `cat /sys/kernel/debug/tracing/trace-pipe`
-Or if you have `bpftool` installed, the equivalent is `bpftool prog tracelog`
-
-# Corrections
-
-If you're looking at an Early Release version of the book, you may well find
-inconsistencies between the book and this repo. But if you have the final
-published version, I'd love to hear if you find corrections and improvements for
-these examples. Issues and PRs are welcome! 
-=======
-As root, `cat /sys/kernel/debug/tracing/trace_pipe`
->>>>>>> d69dc66 (typo in debug command)
