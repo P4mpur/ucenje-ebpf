@@ -56,8 +56,14 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 struct data_t* get_process_info(int pid) {
     static struct data_t proc;
     char path[40], buffer[128];
-    FILE *status_file;
+    FILE *status_file, *cmdline_file;
     char parent_comm[16];
+
+//   if (proc.cmdline)
+//   {
+//      free(proc.cmdline);
+//      proc.cmdline = NULL;
+//   }
 
     snprintf(path, sizeof(path), "/proc/%d/status", pid);
     status_file = fopen(path, "r");
@@ -77,6 +83,33 @@ struct data_t* get_process_info(int pid) {
    }
 
     fclose(status_file);
+
+   // PAzi sad ce uzmes celu komandu bajco
+   snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+   cmdline_file = fopen(path,"r");
+   if (cmdline_file) {
+      cmdline_file = fopen(path,"r");
+      fseek(cmdline_file, 0, SEEK_END);
+      int len = ftell(cmdline_file);
+      fseek(cmdline_file, 0, SEEK_SET);
+
+      if (len>0)
+      {
+         // Allocate memory for cmdline
+         if (proc.cmdline){
+            fread(proc.cmdline, 1, len, cmdline_file);
+            for (long i = 0; i< len; i++)
+            {
+               if(proc.cmdline[i]=='\0')
+                  proc.cmdline[i] = ' ';
+            }
+            proc.cmdline[len] = '\0';
+         }
+      }
+      fclose(cmdline_file);
+   }
+
+
 
     // Retrieve parent process command
     snprintf(path, sizeof(path), "/proc/%d/comm", proc.ppid);
@@ -99,17 +132,18 @@ struct data_t* get_process_info(int pid) {
 
 void traverse_to_root(struct data_t *process,int level) {
     printf("Tracing process hierarchy:\n");
-    printf("%-6s %-6s %-16s %-16s\n", "PID", "PPID", "Command", "Parent Command");
 
     struct data_t *current_process = process;
 
     while (current_process != NULL) {
 
     // Print process information
-    printf("↪ %-6d %-16s Parent: %-16s\n",
+    printf("↪ %-6d %-6d %-16s Parent: %-16s %s\n",
            current_process->pid,
+           current_process->ppid,
            current_process->command,
-           current_process->parent_com);
+           current_process->parent_com,
+           current_process->cmdline ? current_process->cmdline : "");
 
         // If the current process is the root (e.g., PID 1), stop the traversal
         if (current_process->pid == 1) {
@@ -126,13 +160,13 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     struct data_t *m = data;
 
     printf("Event received on CPU %d:\n", cpu);
-    printf("%-6d %-6d %-16s %-16s %s\n",
-           m->pid, m->uid, m->command, m->path, m->message);
-    printf("PPID: %d, Parent Command: %-16s\n",
-           m->ppid, m->parent_com);
+    printf("%-6d %-6d %-16s %-16s %s %s\n",
+           m->pid, m->uid, m->command, m->path, m->message, m->cmdline);
+    printf("PPID: %d, Parent Command: %-16s Full Command: %s\n",
+           m->ppid, m->parent_com,m->cmdline);
 
     // Traverse and display the process hierarchy to the root
-    traverse_to_root(m,0);
+   traverse_to_root(m,0);
 }
 
 void preload_processes(int map_fd, struct bpf_map *map) {
