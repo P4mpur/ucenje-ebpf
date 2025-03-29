@@ -39,7 +39,7 @@ int BPF_KPROBE_SYSCALL(hello, const char *pathname)
    if (pathname) {  // Prevent NULL pointer dereference
        bpf_probe_read_user_str(&data.path, sizeof(data.path), pathname);
    } else {
-       __builtin_memset(&data.path, 0, sizeof(data.path));  // Prevent garbage values
+       __builtin_memset(&data.path, 0, sizeof(data.path));  
    }
 
    p = bpf_map_lookup_elem(&my_config, &data.uid);

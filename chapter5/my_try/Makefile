@@ -6,7 +6,7 @@ BPF_OBJ = ${TARGET:=.bpf.o}
 USER_C = ${TARGET:=.c}
 USER_SKEL = ${TARGET:=.skel.h}
 
-all: $(TARGET) $(BPF_OBJ) find-map
+all: $(TARGET) $(BPF_OBJ)
 .PHONY: all 
 
 $(TARGET): $(USER_C) $(USER_SKEL) 
@@ -29,10 +29,7 @@ vmlinux.h:
 clean:
 	- rm $(BPF_OBJ)
 	- rm $(TARGET)
-	- rm find-map
 
-find-map: find-map.c
-	gcc -Wall -o find-map find-map.c -L../libbpf/src -l:libbpf.a -lelf -lz
 
 my: 
 	clang -target bpf -D __TARGET_ARCH_x86 -Wall -O2 -g -c exec_tracker.bpf.c -o exec_tracker.bpf.o

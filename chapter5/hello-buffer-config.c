@@ -55,21 +55,16 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 
 struct data_t* get_process_info(int pid) {
     static struct data_t proc;
-    char path[40], buffer[128];
-    FILE *status_file, *cmdline_file;
+    char buffer[128], path[80];
+    FILE *status_file;
     char parent_comm[16];
-
-//   if (proc.cmdline)
-//   {
-//      free(proc.cmdline);
-//      proc.cmdline = NULL;
-//   }
 
     snprintf(path, sizeof(path), "/proc/%d/status", pid);
     status_file = fopen(path, "r");
     if (!status_file) {
-        return NULL;
+       return NULL;
     }
+
 
    // This is where the struct comes in handy, i don't need to have many if else's
    while (fgets(buffer, sizeof(buffer), status_file)) {
@@ -83,33 +78,6 @@ struct data_t* get_process_info(int pid) {
    }
 
     fclose(status_file);
-
-   // PAzi sad ce uzmes celu komandu bajco
-   snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-   cmdline_file = fopen(path,"r");
-   if (cmdline_file) {
-      cmdline_file = fopen(path,"r");
-      fseek(cmdline_file, 0, SEEK_END);
-      int len = ftell(cmdline_file);
-      fseek(cmdline_file, 0, SEEK_SET);
-
-      if (len>0)
-      {
-         // Allocate memory for cmdline
-         if (proc.cmdline){
-            fread(proc.cmdline, 1, len, cmdline_file);
-            for (long i = 0; i< len; i++)
-            {
-               if(proc.cmdline[i]=='\0')
-                  proc.cmdline[i] = ' ';
-            }
-            proc.cmdline[len] = '\0';
-         }
-      }
-      fclose(cmdline_file);
-   }
-
-
 
     // Retrieve parent process command
     snprintf(path, sizeof(path), "/proc/%d/comm", proc.ppid);
@@ -130,31 +98,113 @@ struct data_t* get_process_info(int pid) {
     return &proc;
 }
 
-void traverse_to_root(struct data_t *process,int level) {
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+
+#define MAX_SIZE 4096  // Define a reasonable buffer size
+
+void read_cmdline(int pid) {
+    char *name = (char *)malloc(MAX_SIZE);
+    if (name == NULL) {
+        perror("Failed to allocate memory");
+        return;
+    }
+
+    char procfile[MAX_SIZE];
+    snprintf(procfile, sizeof(procfile), "/proc/%d/cmdline", pid);
+
+    int fd = open(procfile, O_RDONLY);
+    if (fd == -1) {
+        perror("Failed to open cmdline file");
+        free(name);
+        return;
+    }
+
+    int size = read(fd, name, MAX_SIZE - 1);
+    if (size == -1) {
+        perror("Failed to read cmdline file");
+        close(fd);
+        free(name);
+        return;
+    }
+    close(fd);
+
+    if (size > 0) {
+        // Replace null bytes with spaces
+        for (int i = 0; i < size; i++) {
+            if (name[i] == '\0') {
+                name[i] = ' ';
+            }
+        }
+        name[size] = '\0';  // Null-terminate the string
+
+        printf("Command line for PID %d: %s\n", pid, name);
+    } else {
+        printf("No command line information found for PID %d.\n", pid);
+    }
+
+    free(name);
+}
+
+void traverse_to_root(struct data_t *process, int level) {
     printf("Tracing process hierarchy:\n");
 
     struct data_t *current_process = process;
 
     while (current_process != NULL) {
+        char path[256];
+        snprintf(path, sizeof(path), "/proc/%d/cmdline", current_process->pid);
+//
+//        FILE *cmdline_file = fopen(path, "rb");
+//        if (cmdline_file) {
+//            char buffer[4096];
+//            size_t len = fread(buffer, 1, sizeof(buffer) - 1, cmdline_file);
+//            fclose(cmdline_file);
+//
+//            if (len > 0) {
+//            //    buffer[len] = '\0'; 
+//            //    for (size_t i = 0; i < len; i++) {
+//            //        if (buffer[i] == '\0') {
+//            //            buffer[i] = ' ';
+//            //        }
+//            //    }
+//
+//                //current_process->cmdline = malloc(len + 1);
+//                //if (!current_process->cmdline) {
+//                //    perror("Failed to allocate memory for cmdline");
+//                //    return;
+//                //}
+//                //strncpy(current_process->cmdline, buffer, len + 1);
+//            } else {
+//                current_process->cmdline = strdup("(empty cmdline)");
+//            }
+//        } else {
+//            perror("Failed to open cmdline file");
+//            current_process->cmdline = strdup("(cmdline open error)");
+//        }
 
-    // Print process information
-    printf("↪ %-6d %-6d %-16s Parent: %-16s %s\n",
-           current_process->pid,
-           current_process->ppid,
-           current_process->command,
-           current_process->parent_com,
-           current_process->cmdline ? current_process->cmdline : "");
+        // Print process information
+        printf("↪ %-6d %-6d %-16s Parent: %-16s\n",
+               current_process->pid,
+               current_process->ppid,
+               current_process->command,
+               current_process->parent_com);
+               //current_process->cmdline ? current_process->cmdline : "(null)");
 
-        // If the current process is the root (e.g., PID 1), stop the traversal
         if (current_process->pid == 1) {
             break;
         }
-         level++;
+
+        level++;
 
         // Retrieve the parent process information
         current_process = get_process_info(current_process->ppid);
     }
 }
+
 
 void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     struct data_t *m = data;
@@ -162,8 +212,8 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     printf("Event received on CPU %d:\n", cpu);
     printf("%-6d %-6d %-16s %-16s %s %s\n",
            m->pid, m->uid, m->command, m->path, m->message, m->cmdline);
-    printf("PPID: %d, Parent Command: %-16s Full Command: %s\n",
-           m->ppid, m->parent_com,m->cmdline);
+    printf("PPID: %d, Parent Command: %-16s\n",
+           m->ppid, m->parent_com);
 
     // Traverse and display the process hierarchy to the root
    traverse_to_root(m,0);

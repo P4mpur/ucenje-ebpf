@@ -1,9 +1,23 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <errno.h>
 #include <bpf/libbpf.h>
+#include <bpf/bpf.h>
 #include "hello-buffer-config.h"
 #include "hello-buffer-config.skel.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <bpf/libbpf.h>
+#include <errno.h>
+#include <stdint.h>
+#include <linux/types.h>
 
 // So basically it's set that libbpf_set_print uses this function for printing
 // But it's more for libbpf logs than it's for "logs" that we're creating
@@ -15,46 +29,53 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 	return vfprintf(stderr, format, args);
 }
 
-//void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz)
-//{
-//	struct data_t *m = data;
-//	struct data_t *parent_data;
-//
-//
-//
-//	printf("%-6d %-6d %-16s %-16s %s\n", m->pid, m->uid, m->command, m->path, m->message);
-//   printf("PPID: %d, Parent Command: %-16s", m->ppid, m->parent_com);
-//	printf("Cpu: %d\n",cpu);
-//
-//   int ppid = m->ppid;
-//   while (ppid != 1) {
-//      if (bpf_map_lookup_elem(map_fd, &ppid, &parent_data) == 0) {
-//           printf("  ↳ Parent PID: %-6d Parent CMD: %-16s\n", parent_data->ppid, parent_data->parent_com);
-//           ppid = parent_data->ppid;  // Move to next parent
-//      } else {
-//         break;
-//      }
-//   }
-//
-//}
-
-
-void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
-    struct hello_buffer_config_bpf *skel = ctx; // Get skel from perf_buffer context
-    struct data_t *m = data;
-    struct data_t parent_data;
-    int map_fd = bpf_map__fd(skel->maps.my_config); // Reuse skel, no need to reopen
-    if (map_fd < 0)
+void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz)
+{
+   struct hello_buffer_config_bpf *skel = ctx; // Get skel from perf_buffer context
+	struct data_t *m = data;
+	struct data_t *parent_data;
+   int map_fd = bpf_map__fd(skel->maps.my_config); // Reuse skel, no need to reopen
+   if (map_fd < 0)
    {
       fprintf(stderr, "A BE NE VALJA TI MAP_FD");
       return;
    }
 
-    printf("PID: %-6d UID: %-6d CMD: %-16s PPID: %-6d Parent CMD: %-16s\n",
-           m->pid, m->uid, m->command, m->ppid, m->parent_com);
 
-    printf("Cpu: %d\n", cpu);
+
+	printf("%-6d %-6d %-16s %-16s %s\n", m->pid, m->uid, m->command, m->path, m->message);
+   printf("PPID: %d, Parent Command: %-16s", m->ppid, m->parent_com);
+	printf("Cpu: %d\n",cpu);
+
+   int ppid = m->ppid;
+   while (ppid != 1) {
+      if (bpf_map_lookup_elem(map_fd, &ppid, &parent_data) == 0) {
+           printf("  ↳ Parent PID: %-6d Parent CMD: %-16s\n", parent_data->ppid, parent_data->parent_com);
+           ppid = parent_data->ppid;  // Move to next parent
+      } else {
+         break;
+      }
+   }
+
 }
+
+
+//void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
+//    struct hello_buffer_config_bpf *skel = ctx; // Get skel from perf_buffer context
+//    struct data_t *m = data;
+//    struct data_t parent_data;
+//    int map_fd = bpf_map__fd(skel->maps.my_config); // Reuse skel, no need to reopen
+//    if (map_fd < 0)
+//   {
+//      fprintf(stderr, "A BE NE VALJA TI MAP_FD");
+//      return;
+//   }
+//
+//    printf("PID: %-6d UID: %-6d CMD: %-16s PPID: %-6d Parent CMD: %-16s\n",
+//           m->pid, m->uid, m->command, m->ppid, m->parent_com);
+//
+//    printf("Cpu: %d\n", cpu);
+//}
 
 void lost_event(void *ctx, int cpu, long long unsigned int data_sz)
 {
