@@ -19,9 +19,9 @@ void get_user_info(int uid)
 {
     struct passwd *pwd = getpwuid(uid);
     if (pwd) {
-        printf("User: %s\n", pwd->pw_name);
+       LOGI("User: %s", pwd->pw_name);
     } else {
-        printf("User ID %d not found\n", uid);
+       LOGI("User ID %d not found", uid);
     }
 }
 
@@ -63,43 +63,46 @@ struct process_t* get_process_info(int pid) {
 }
 
 void traverse_to_root(struct process_t *process) {
-    printf("Tracing process hierarchy:\n");
-
+    char block[4096] = "";
+    char line[512];
     struct process_t *current = process;
 
+    strcat(block, "");
+
     while (current && current->pid != 1) {
-        printf("↪ UID: %d %-6d %-6d %-16s Parent: %-16s",
-               current->uid,
-               current->pid,
-               current->ppid,
-               current->command,
-               current->parent_com);
-        get_user_info(current->uid);
+        snprintf(line, sizeof(line),
+                 "↪ UID: %-4d PID: %-6d PPID: %-6d CMD: %-16s Parent: %-16s ",
+                 current->uid, current->pid, current->ppid, current->command, current->parent_com);
+        strcat(block, line);
+
+        struct passwd *pwd = getpwuid(current->uid);
+        snprintf(line, sizeof(line), "   User: %s\n", pwd ? pwd->pw_name : "unknown");
+        strcat(block, line);
 
         current = get_process_info(current->ppid);
     }
 
-    // Print PID 1 info
     if (current && current->pid == 1) {
-        printf("↪ %-6d %-6d %-16s Parent: %-16s\n",
-               current->pid,
-               current->ppid,
-               current->command,
-               current->parent_com);
-       get_user_info(current->uid);
+        snprintf(line, sizeof(line),
+                 "↪ UID: %-4d PID: %-6d PPID: %-6d CMD: %-16s Parent: %-16s ",
+                 current->uid, current->pid, current->ppid, current->command, current->parent_com);
+        strcat(block, line);
+
+        struct passwd *pwd = getpwuid(current->uid);
+        snprintf(line, sizeof(line), "   User: %s\n", pwd ? pwd->pw_name : "unknown");
+        strcat(block, line);
     }
+
+    log_block(LOG_INFO, "Tracing process hierarchy:", block);
 }
 
 
 int handle_event(void *ctx, void *data, size_t data_sz) {
     struct event_t *event = data;
     get_user_info(event->uid);
-
-    printf("PID: %d, PPID: %d, UID: %d, Command: %s, Filename: %s",
-           event->pid, event->ppid, event->uid, event->comm, event->filename);
+    char argv_buf[ARGV_LEN + 1] = {};
 
     if (event->argv_size > 0) {
-        char argv_buf[ARGV_LEN + 1] = {};
         memcpy(argv_buf, event->argv, event->argv_size);
         argv_buf[event->argv_size] = '\0';
 
@@ -107,9 +110,11 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
         for (int i = 0; i < event->argv_size; i++) {
             if (argv_buf[i] == '\0') argv_buf[i] = ' ';
         }
-
-        printf("    ARGV: %s\n", argv_buf);
     }
+
+   LOGI("PID: %d, PPID: %d, UID: %d, Command: %s, Filename: %s, ARGV %s",
+           event->pid, event->ppid, event->uid, event->comm, event->filename, argv_buf);
+
 
     struct process_t *start = get_process_info(event->pid);
     if (start) traverse_to_root(start);
@@ -127,50 +132,54 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 
         return vfprintf(stderr, format, args);
 }
-
 int main() {
     struct hello_buffer_config_bpf *skel;
     int err;
     struct ring_buffer *rb = NULL;
-libbpf_set_print(libbpf_print_fn); 
-   // Load and verify BPF object
+
+    // Initialize logging: use_syslog = 1, log_file = "/tmp/my-ebpf.log"
+    log_init("ebpf-tracer", 1, "/tmp/my-ebpf.log");
+    log_set_level(LOG_DEBUG);  // optional, for verbose logging
+
+    libbpf_set_print(libbpf_print_fn);
+
     skel = hello_buffer_config_bpf__open_and_load();
     if (!skel) {
-        fprintf(stderr, "[-] Failed to open BPF skeleton\n");
+        LOGE("Failed to open BPF skeleton");
         return 1;
     }
 
-    // Attach BPF programs
     err = hello_buffer_config_bpf__attach(skel);
     if (err) {
-        fprintf(stderr, "[-] Failed to attach BPF programs: %d\n", err);
+        LOGE("Failed to attach BPF programs: %d", err);
         hello_buffer_config_bpf__destroy(skel);
         return 1;
     }
 
-    printf("[+] BPF programs attached successfully!\n");
+    LOGI("BPF programs attached successfully");
 
-       // Set up ring buffer handler
     rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
     if (!rb) {
-        fprintf(stderr, "[-] Failed to create ring buffer\n");
+        LOGE("Failed to create ring buffer");
         hello_buffer_config_bpf__destroy(skel);
         return 1;
     }
 
-    // Poll for events
+    // Main event loop
     while (1) {
-        err = ring_buffer__poll(rb, 100 /* ms */);
+        err = ring_buffer__poll(rb, 100);
         if (err == -EINTR) {
-            break; // Interrupted by Ctrl+C
+            LOGI("Interrupted by user, exiting.");
+            break;
         } else if (err < 0) {
-            fprintf(stderr, "[-] Error polling ring buffer: %d\n", err);
+            LOGE("Error polling ring buffer: %d", err);
             break;
         }
     }
 
     ring_buffer__free(rb);
     hello_buffer_config_bpf__destroy(skel);
+    log_close();
     return 0;
 }
 

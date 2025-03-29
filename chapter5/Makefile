@@ -9,7 +9,7 @@ all: $(TARGET) $(BPF_OBJ) find-map
 .PHONY: all 
 
 $(TARGET): $(USER_C) $(USER_SKEL) 
-	gcc -Wall -o $(TARGET) $(USER_C) -L../libbpf/src -l:libbpf.a -lelf -lz
+	gcc -Wall -o $(TARGET) $(USER_C) -L../libbpf/src logger.c -l:libbpf.a -lelf -lz
 
 %.bpf.o: %.bpf.c vmlinux.h
 	clang \
