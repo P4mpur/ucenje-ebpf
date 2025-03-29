@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
@@ -8,7 +7,6 @@
 #include <unistd.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <stdint.h>
 #include "logger.h"
 #include "hello-buffer-config.skel.h"
 #include "hello-buffer-config.h"
@@ -17,34 +15,17 @@
 
 #include <bpf/bpf.h>
 
-int handle_event(void *ctx, void *data, size_t data_sz){
-    struct event_t *m = data;
-    // int cpu = bpf_get_smp_processor_id(); // optional
+int handle_event(void *ctx, void *data, size_t data_sz) {
+    struct event_t *event = data;
 
+    printf("PID: %d, PPID: %d, UID: %d, Command: %s, Filename: %s\n",
+           event->pid, event->ppid, event->uid, event->comm, event->filename);
 
-    //printf("%-6d %-6d %-16s %-16s %s %s\n", m->ppid, m->uid, m->command, m->path, m->message, m->cmdline);
-    printf("PPID: %d, PID: %d\n",
-           m->ppid, m->pid);
-
-    // Traverse and display the process hierarchy to the root
-   //traverse_to_root(m,0);
-   // Optionally print argv if available
-    if (m->argv_size > 0) {
-        char argv_buf[ARGV_LEN + 1] = {};
-        memcpy(argv_buf, m->argv, m->argv_size);
-        argv_buf[m->argv_size] = '\0';
-
-        // Replace nulls with spaces for readability
-        for (int i = 0; i < m->argv_size; i++) {
-            if (argv_buf[i] == '\0') argv_buf[i] = ' ';
-        }
-
-        printf("    ARGV: %s\n", argv_buf);
+    if (event->argv_size > 0) {
+        printf("Arguments: %.*s\n", event->argv_size, event->argv);
     }
-
    return 0;
 }
-
 
 // So basically it's set that libbpf_set_print uses this function for printing
 // But it's more for libbpf logs than it's for "logs" that we're creating

@@ -1,12 +1,14 @@
 #ifndef HELLO_BUFFER_CONFIG_H
 #define HELLO_BUFFER_CONFIG_H
 
-#define TASK_COMM_LEN 16
-#define FILENAME_LEN 512
-#define ARGV_LEN 4096
 
 //#include <linux/types.h>
 
+
+
+#define TASK_COMM_LEN 16
+#define ARGV_LEN 128
+#define FILENAME_LEN 512
 
 struct event_t {
     int pid;
@@ -17,6 +19,7 @@ struct event_t {
     char argv[ARGV_LEN];
     int argv_size;
 };
+
 
 
 
