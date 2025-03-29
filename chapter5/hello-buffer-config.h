@@ -10,6 +10,14 @@
 #define ARGV_LEN 128
 #define FILENAME_LEN 512
 
+struct process_t {
+    int pid;
+    int ppid;
+    int uid;
+    char command[256];
+    char parent_com[256];
+};
+
 struct event_t {
     int pid;
     int ppid;

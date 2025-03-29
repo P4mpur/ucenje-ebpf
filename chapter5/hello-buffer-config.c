@@ -15,15 +15,106 @@
 
 #include <bpf/bpf.h>
 
+void get_user_info(int uid)
+{
+    struct passwd *pwd = getpwuid(uid);
+    if (pwd) {
+        printf("User: %s\n", pwd->pw_name);
+    } else {
+        printf("User ID %d not found\n", uid);
+    }
+}
+
+struct process_t* get_process_info(int pid) {
+    static struct process_t proc;
+    char line[256], path[128];
+    FILE *status_file;
+
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    status_file = fopen(path, "r");
+    if (!status_file) return NULL;
+
+    memset(&proc, 0, sizeof(proc));
+
+   while (fgets(line, sizeof(line), status_file)) {
+    if (strncmp(line, "Name:", 5) == 0)
+        sscanf(line + 6, "%255s", proc.command);
+    else if (strncmp(line, "Pid:", 4) == 0)
+        sscanf(line + 5, "%d", &proc.pid);
+    else if (strncmp(line, "PPid:", 5) == 0)
+        sscanf(line + 6, "%d", &proc.ppid);
+    else if (strncmp(line, "Uid:", 4) == 0)
+        sscanf(line + 5, "%d", &proc.uid);  // ✅ extract real UID
+   }
+   
+    fclose(status_file);
+
+    snprintf(path, sizeof(path), "/proc/%d/comm", proc.ppid);
+    FILE *comm_file = fopen(path, "r");
+    if (comm_file) {
+        fgets(proc.parent_com, sizeof(proc.parent_com), comm_file);
+        proc.parent_com[strcspn(proc.parent_com, "\n")] = '\0';
+        fclose(comm_file);
+    } else {
+        strncpy(proc.parent_com, "unknown", sizeof(proc.parent_com) - 1);
+    }
+
+    return &proc;
+}
+
+void traverse_to_root(struct process_t *process) {
+    printf("Tracing process hierarchy:\n");
+
+    struct process_t *current = process;
+
+    while (current && current->pid != 1) {
+        printf("↪ UID: %d %-6d %-6d %-16s Parent: %-16s",
+               current->uid,
+               current->pid,
+               current->ppid,
+               current->command,
+               current->parent_com);
+        get_user_info(current->uid);
+
+        current = get_process_info(current->ppid);
+    }
+
+    // Print PID 1 info
+    if (current && current->pid == 1) {
+        printf("↪ %-6d %-6d %-16s Parent: %-16s\n",
+               current->pid,
+               current->ppid,
+               current->command,
+               current->parent_com);
+       get_user_info(current->uid);
+    }
+}
+
+
 int handle_event(void *ctx, void *data, size_t data_sz) {
     struct event_t *event = data;
+    get_user_info(event->uid);
 
-    printf("PID: %d, PPID: %d, UID: %d, Command: %s, Filename: %s\n",
+    printf("PID: %d, PPID: %d, UID: %d, Command: %s, Filename: %s",
            event->pid, event->ppid, event->uid, event->comm, event->filename);
 
     if (event->argv_size > 0) {
-        printf("Arguments: %.*s\n", event->argv_size, event->argv);
+        char argv_buf[ARGV_LEN + 1] = {};
+        memcpy(argv_buf, event->argv, event->argv_size);
+        argv_buf[event->argv_size] = '\0';
+
+        // Replace nulls with spaces for readability
+        for (int i = 0; i < event->argv_size; i++) {
+            if (argv_buf[i] == '\0') argv_buf[i] = ' ';
+        }
+
+        printf("    ARGV: %s\n", argv_buf);
     }
+
+    struct process_t *start = get_process_info(event->pid);
+    if (start) traverse_to_root(start);
+
+
    return 0;
 }
 
