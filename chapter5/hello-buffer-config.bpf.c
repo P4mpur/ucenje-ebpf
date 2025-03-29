@@ -5,16 +5,13 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
-/* BPF ringbuf map */
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 16 * 1024 /* 16 KB */);
 } events SEC(".maps");
 
-
 SEC("tracepoint/sched/sched_process_exec")
-int tracepoint__sched__sched_process_exec(
-    struct trace_event_raw_sched_process_exec *ctx) {
+int trace_exec(struct trace_event_raw_sched_process_exec *ctx) {
     struct event_t *event;
     event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
     if (!event) {
@@ -25,6 +22,7 @@ int tracepoint__sched__sched_process_exec(
 
     event->pid = bpf_get_current_pid_tgid() >> 32;
     event->ppid = BPF_CORE_READ(task, real_parent, tgid);
+    event->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
     unsigned int filename_loc = BPF_CORE_READ(ctx, __data_loc_filename) & 0xFFFF;
@@ -42,5 +40,4 @@ int tracepoint__sched__sched_process_exec(
     bpf_ringbuf_submit(event, 0);
     return 0;
 }
-
 char _license[] SEC("license") = "GPL";
