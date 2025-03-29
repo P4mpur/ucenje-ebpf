@@ -1,17 +1,23 @@
 #ifndef HELLO_BUFFER_CONFIG_H
 #define HELLO_BUFFER_CONFIG_H
 
-struct data_t {
-   int pid;
-   int ppid;
-   int uid;
-   char command[16];
-   char message[12];
-   char path[16];
-   char parent_com[16];
-   char *cmdline;
-}; 
-//__attribute__((packed, aligned(8)));  // 🔥 Ensure no padding
+#define TASK_COMM_LEN 16
+#define FILENAME_LEN 512
+#define ARGV_LEN 4096
+
+//#include <linux/types.h>
+
+
+struct event_t {
+    int pid;
+    int ppid;
+    int uid;
+    char comm[TASK_COMM_LEN];
+    char filename[ARGV_LEN];
+    char argv[ARGV_LEN];
+    int argv_size;
+};
+
 
 
 #endif

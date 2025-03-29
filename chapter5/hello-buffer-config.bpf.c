@@ -1,72 +1,46 @@
 #include "vmlinux.h"
+
+#include "hello-buffer-config.h" 
+#include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
-#include "hello-buffer-config.h"
-//#include <linux/sched.h>
 
-
-
-char message[12] = "Hello World";
-
+/* BPF ringbuf map */
 struct {
-    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-    __uint(key_size, sizeof(u32));
-    __uint(value_size, sizeof(u32));
-} output SEC(".maps");
-   
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 16 * 1024 /* 16 KB */);
+} events SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 20480);
-    __type(key, u32);
-    __type(value, struct data_t);
-    __uint(map_flags, 0);  // 🔥 Ensure it's writable
-} my_config SEC(".maps");
 
-SEC("tracepoint/syscalls/sys_enter_execve")
-int trace_execve(struct trace_event_raw_sys_enter *ctx)
-{
-    struct data_t data = {};
-    const char *pathname = (const char *)ctx->args[0];
-    char *const *argv = (char *const *)ctx->args[1];
-
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
-    if (!task)
+SEC("tracepoint/sched/sched_process_exec")
+int tracepoint__sched__sched_process_exec(
+    struct trace_event_raw_sched_process_exec *ctx) {
+    struct event_t *event;
+    event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+    if (!event) {
         return 0;
-
-    data.pid = bpf_get_current_pid_tgid() >> 32;
-    data.uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
-
-    bpf_get_current_comm(&data.command, sizeof(data.command));
-    bpf_probe_read_user_str(&data.path, sizeof(data.path), pathname);
-
-    struct task_struct *parent = task->real_parent;
-    if (parent)
-    {
-        data.ppid = parent->tgid;
-        bpf_probe_read_kernel_str(data.parent_com, sizeof(data.parent_com), parent->comm);
     }
 
-    // 🔥 Print first 3 argv strings
-    #pragma unroll
-    for (int i = 0; i < 3; i++) {
-        char arg[64];
-        char *ptr = NULL;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
-        // Read argv[i] pointer
-        if (bpf_probe_read_user(&ptr, sizeof(ptr), &argv[i]) < 0 || ptr == NULL)
-            break;
+    event->pid = bpf_get_current_pid_tgid() >> 32;
+    event->ppid = BPF_CORE_READ(task, real_parent, tgid);
+    bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
-        // Read the actual string
-        if (bpf_probe_read_user_str(arg, sizeof(arg), ptr) > 0) {
-            bpf_printk("argv[%d] = %s\n", i, arg);
-        }
+    unsigned int filename_loc = BPF_CORE_READ(ctx, __data_loc_filename) & 0xFFFF;
+    bpf_probe_read_str(&event->filename, sizeof(event->filename), (void *)ctx + filename_loc);
+
+    void *arg_start = (void *)BPF_CORE_READ(task, mm, arg_start);
+    void *arg_end = (void *)BPF_CORE_READ(task, mm, arg_end);
+    unsigned long arg_length = arg_end - arg_start;
+    arg_length = arg_length < ARGV_LEN ? arg_length : ARGV_LEN;
+    int arg_ret = bpf_probe_read(&event->argv, arg_length, arg_start);
+    if (!arg_ret) {
+        event->argv_size = arg_length;
     }
 
-    bpf_perf_event_output(ctx, &output, BPF_F_CURRENT_CPU, &data, sizeof(data));
-    bpf_map_update_elem(&my_config, &data.pid, &data, BPF_ANY);
+    bpf_ringbuf_submit(event, 0);
     return 0;
 }
 
-char LICENSE[] SEC("license") = "Dual BSD/GPL";
+char _license[] SEC("license") = "GPL";

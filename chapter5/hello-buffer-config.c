@@ -1,18 +1,3 @@
-//#include <stdio.h>
-//#include <unistd.h>
-//#include <errno.h>
-//#include <bpf/libbpf.h>
-//#include "hello-buffer-config.h"
-//#include "hello-buffer-config.skel.h"
-
-#include <stdio.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <errno.h>
-#include <bpf/libbpf.h>
-#include <bpf/bpf.h>
-#include "hello-buffer-config.h"
-#include "hello-buffer-config.skel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,326 +9,96 @@
 #include <bpf/libbpf.h>
 #include <errno.h>
 #include <stdint.h>
-#include <linux/types.h>
 #include "logger.h"
+#include "hello-buffer-config.skel.h"
+#include "hello-buffer-config.h"
 
-typedef uint32_t u32;
+#include <signal.h>
 
-// Structure which helps us have every process in one place
-struct {
-    const char *field_name;
-    size_t offset;
-    const char *format;
-} fields[] = {
-    {"Name:", offsetof(struct data_t, command), "%15s"},
-    {"Pid:", offsetof(struct data_t, pid), "%d"},
-    {"PPid:", offsetof(struct data_t, ppid), "%d"},
-    {"Uid:", offsetof(struct data_t, uid), "%d"},
-    // Add more fields as needed
-};
+#include <bpf/bpf.h>
+
+int handle_event(void *ctx, void *data, size_t data_sz){
+    struct event_t *m = data;
+    // int cpu = bpf_get_smp_processor_id(); // optional
+
+
+    //printf("%-6d %-6d %-16s %-16s %s %s\n", m->ppid, m->uid, m->command, m->path, m->message, m->cmdline);
+    printf("PPID: %d, PID: %d\n",
+           m->ppid, m->pid);
+
+    // Traverse and display the process hierarchy to the root
+   //traverse_to_root(m,0);
+   // Optionally print argv if available
+    if (m->argv_size > 0) {
+        char argv_buf[ARGV_LEN + 1] = {};
+        memcpy(argv_buf, m->argv, m->argv_size);
+        argv_buf[m->argv_size] = '\0';
+
+        // Replace nulls with spaces for readability
+        for (int i = 0; i < m->argv_size; i++) {
+            if (argv_buf[i] == '\0') argv_buf[i] = ' ';
+        }
+
+        printf("    ARGV: %s\n", argv_buf);
+    }
+
+   return 0;
+}
 
 
 // So basically it's set that libbpf_set_print uses this function for printing
 // But it's more for libbpf logs than it's for "logs" that we're creating
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-	if (level >= LIBBPF_DEBUG)
-		return 0;
+        if (level >= LIBBPF_DEBUG)
+                return 0;
 
-	return vfprintf(stderr, format, args);
+        return vfprintf(stderr, format, args);
 }
 
-struct data_t* get_process_info(int pid) {
-    static struct data_t proc;
-    char buffer[128], path[80];
-    FILE *status_file;
-    char parent_comm[16];
-
-    snprintf(path, sizeof(path), "/proc/%d/status", pid);
-    status_file = fopen(path, "r");
-    if (!status_file) {
-       return NULL;
-    }
-
-
-   // This is where the struct comes in handy, i don't need to have many if else's
-   while (fgets(buffer, sizeof(buffer), status_file)) {
-       for (int i = 0; i < sizeof(fields)/sizeof(fields[0]); i++) {
-           if (strncmp(buffer, fields[i].field_name, strlen(fields[i].field_name)) == 0) {
-               void *field_ptr = (char *)&proc + fields[i].offset;
-               sscanf(buffer + strlen(fields[i].field_name) + 1, fields[i].format, field_ptr);
-               break;
-           }
-       }
-   }
-
-    fclose(status_file);
-
-    // Retrieve parent process command
-    snprintf(path, sizeof(path), "/proc/%d/comm", proc.ppid);
-    status_file = fopen(path, "r");
-    if (status_file) {
-        if (fgets(parent_comm, sizeof(parent_comm), status_file)) {
-            // Remove newline character
-            parent_comm[strcspn(parent_comm, "\n")] = '\0';
-            strncpy(proc.parent_com, parent_comm, sizeof(proc.parent_com) - 1);
-            proc.parent_com[sizeof(proc.parent_com) - 1] = '\0';
-        }
-        fclose(status_file);
-    } else {
-        strncpy(proc.parent_com, "Unknown", sizeof(proc.parent_com) - 1);
-        proc.parent_com[sizeof(proc.parent_com) - 1] = '\0';
-    }
-
-    return &proc;
-}
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <string.h>
-
-#define MAX_SIZE 4096  // Define a reasonable buffer size
-
-void read_cmdline(int pid) {
-    char *name = (char *)malloc(MAX_SIZE);
-    if (name == NULL) {
-        perror("Failed to allocate memory");
-        return;
-    }
-
-    char procfile[MAX_SIZE];
-    snprintf(procfile, sizeof(procfile), "/proc/%d/cmdline", pid);
-
-    int fd = open(procfile, O_RDONLY);
-    if (fd == -1) {
-        perror("Failed to open cmdline file");
-        free(name);
-        return;
-    }
-
-    int size = read(fd, name, MAX_SIZE - 1);
-    if (size == -1) {
-        perror("Failed to read cmdline file");
-        close(fd);
-        free(name);
-        return;
-    }
-    close(fd);
-
-    if (size > 0) {
-        // Replace null bytes with spaces
-        for (int i = 0; i < size; i++) {
-            if (name[i] == '\0') {
-                name[i] = ' ';
-            }
-        }
-        name[size] = '\0';  // Null-terminate the string
-
-        printf("Command line for PID %d: %s\n", pid, name);
-    } else {
-        printf("No command line information found for PID %d.\n", pid);
-    }
-
-    free(name);
-}
-
-void traverse_to_root(struct data_t *process, int level) {
-    printf("Tracing process hierarchy:\n");
-
-    struct data_t *current_process = process;
-
-    while (current_process != NULL) {
-        char path[256];
-        snprintf(path, sizeof(path), "/proc/%d/cmdline", current_process->pid);
-//
-//        FILE *cmdline_file = fopen(path, "rb");
-//        if (cmdline_file) {
-//            char buffer[4096];
-//            size_t len = fread(buffer, 1, sizeof(buffer) - 1, cmdline_file);
-//            fclose(cmdline_file);
-//
-//            if (len > 0) {
-//            //    buffer[len] = '\0'; 
-//            //    for (size_t i = 0; i < len; i++) {
-//            //        if (buffer[i] == '\0') {
-//            //            buffer[i] = ' ';
-//            //        }
-//            //    }
-//
-//                //current_process->cmdline = malloc(len + 1);
-//                //if (!current_process->cmdline) {
-//                //    perror("Failed to allocate memory for cmdline");
-//                //    return;
-//                //}
-//                //strncpy(current_process->cmdline, buffer, len + 1);
-//            } else {
-//                current_process->cmdline = strdup("(empty cmdline)");
-//            }
-//        } else {
-//            perror("Failed to open cmdline file");
-//            current_process->cmdline = strdup("(cmdline open error)");
-//        }
-
-        // Print process information
-        printf("↪ %-6d %-6d %-16s Parent: %-16s\n",
-               current_process->pid,
-               current_process->ppid,
-               current_process->command,
-               current_process->parent_com);
-               //current_process->cmdline ? current_process->cmdline : "(null)");
-
-        if (current_process->pid == 1) {
-            break;
-        }
-
-        level++;
-
-        // Retrieve the parent process information
-        current_process = get_process_info(current_process->ppid);
-    }
-}
-
-
-void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
-    struct data_t *m = data;
-
-    printf("Event received on CPU %d:\n", cpu);
-    printf("%-6d %-6d %-16s %-16s %s %s\n",
-           m->pid, m->uid, m->command, m->path, m->message, m->cmdline);
-    printf("PPID: %d, Parent Command: %-16s\n",
-           m->ppid, m->parent_com);
-
-    // Traverse and display the process hierarchy to the root
-   traverse_to_root(m,0);
-}
-
-void preload_processes(int map_fd, struct bpf_map *map) {
-    DIR *dir = opendir("/proc");
-    struct dirent *entry;
-    if (!dir) {
-        perror("Failed to open /proc");
-        return;
-    }
-
-    printf("[+] Preloading existing processes...\n");
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (!isdigit(entry->d_name[0])) continue;  // Ignore non-numeric entries (not PIDs)
-
-        int pid = atoi(entry->d_name);
-        char stat_path[64];
-        snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
-
-        FILE *stat_file = fopen(stat_path, "r");
-        if (!stat_file) continue;
-
-        struct data_t process = {};
-        char comm[16], state;
-        int ppid;
-
-        if (fscanf(stat_file, "%d %s %c %d", &process.pid, comm, &state, &ppid) == 4) {
-            process.ppid = ppid;
-            strncpy(process.command, comm, sizeof(process.command) - 1);
-
-            // Get UID from /proc/[pid]/status
-            char status_path[64];
-            snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
-            FILE *status_file = fopen(status_path, "r");
-            if (status_file) {
-                char line[256];
-                while (fgets(line, sizeof(line), status_file)) {
-                    if (strncmp(line, "Uid:", 4) == 0) {
-                        sscanf(line, "Uid:\t%d", &process.uid);
-                        break;
-                    }
-                }
-                fclose(status_file);
-            }
-
-            // Lookup parent command
-            snprintf(stat_path, sizeof(stat_path), "/proc/%d/comm", ppid);
-            FILE *parent_file = fopen(stat_path, "r");
-            if (parent_file) {
-                fgets(process.parent_com, sizeof(process.parent_com), parent_file);
-                fclose(parent_file);
-            } else {
-                strncpy(process.parent_com, "unknown", sizeof(process.parent_com) - 1);
-            }
-
-            // Insert into BPF map
-            printf("Process PID before inserting: %d\n", process.pid);
-            printf("map_fd, makes sense? - %d\n", map_fd);
-            printf("SIZIEIEIEIEIEIE : %d", (int)sizeof(process));
-            uint32_t u32_pid = process.pid;
-            
-            if (bpf_map_update_elem(map_fd, &u32_pid, &process, BPF_ANY) == 0) {
-                printf("  [+] Loaded: PID=%d PPID=%d CMD=%s Parent=%s\n",
-                        process.pid, process.ppid, process.command, process.parent_com);
-            } else {
-                perror("  [-] Failed to insert process");  // 🔥 Print exact error
-                printf("  [-] Failed to insert PID=%d\n", process.pid);
-            }
-
-        }
-        fclose(stat_file);
-    }
-
-    closedir(dir);
-}
-
-void lost_event(void *ctx, int cpu, long long unsigned int data_sz)
-{
-	printf("Izgubi ga bate\n");
-   return;
-}
-
-int main()
-{
+int main() {
     struct hello_buffer_config_bpf *skel;
     int err;
-	struct perf_buffer *pb = NULL;
-
-	libbpf_set_print(libbpf_print_fn);
-
-	skel = hello_buffer_config_bpf__open_and_load();
-	if (!skel) {
-		printf("Failed to open BPF object\n");
-		return 1;
-	}
-
-	err = hello_buffer_config_bpf__attach(skel);
-	if (err) {
-		fprintf(stderr, "Failed to attach BPF skeleton: %d\n", err);
-		hello_buffer_config_bpf__destroy(skel);
+    struct ring_buffer *rb = NULL;
+libbpf_set_print(libbpf_print_fn); 
+   // Load and verify BPF object
+    skel = hello_buffer_config_bpf__open_and_load();
+    if (!skel) {
+        fprintf(stderr, "[-] Failed to open BPF skeleton\n");
         return 1;
-	}
+    }
 
-	pb = perf_buffer__new(bpf_map__fd(skel->maps.output), 8, handle_event, lost_event, NULL, NULL);
-	if (!pb) {
-		err = -1;
-		fprintf(stderr, "Failed to create ring buffer\n");
-		hello_buffer_config_bpf__destroy(skel);
+    // Attach BPF programs
+    err = hello_buffer_config_bpf__attach(skel);
+    if (err) {
+        fprintf(stderr, "[-] Failed to attach BPF programs: %d\n", err);
+        hello_buffer_config_bpf__destroy(skel);
         return 1;
-	}
+    }
 
-  preload_processes(bpf_map__fd(skel->maps.my_config),skel->maps.my_config);
+    printf("[+] BPF programs attached successfully!\n");
 
+       // Set up ring buffer handler
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
+    if (!rb) {
+        fprintf(stderr, "[-] Failed to create ring buffer\n");
+        hello_buffer_config_bpf__destroy(skel);
+        return 1;
+    }
 
-	while (true) {
-		err = perf_buffer__poll(pb, 100 /* timeout, ms */);
-		if (err == -EINTR) {
-			err = 0;
-			break;
-		}
-		if (err < 0) {
-			printf("Error polling perf buffer: %d\n", err);
-			break;
-		}
-	}
+    // Poll for events
+    while (1) {
+        err = ring_buffer__poll(rb, 100 /* ms */);
+        if (err == -EINTR) {
+            break; // Interrupted by Ctrl+C
+        } else if (err < 0) {
+            fprintf(stderr, "[-] Error polling ring buffer: %d\n", err);
+            break;
+        }
+    }
 
-	perf_buffer__free(pb);
-	hello_buffer_config_bpf__destroy(skel);
-	return -err;
+    ring_buffer__free(rb);
+    hello_buffer_config_bpf__destroy(skel);
+    return 0;
 }
+
