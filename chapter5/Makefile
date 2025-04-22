@@ -17,7 +17,7 @@ $(TARGET): $(USER_C) $(USER_SKEL)
         -D __TARGET_ARCH_$(ARCH) \
 	    -Wall \
 	    -O2 -g -o $@ -c $<
-	llvm-strip -g $@
+	llvm-strip-14 -g $@
 
 $(USER_SKEL): $(BPF_OBJ)
 	bpftool gen skeleton $< > $@
